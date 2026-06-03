@@ -157,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <meta charset="UTF-8">
         <title>Check Your Redirects and Status Code</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
+            body { font-family: 'Roboto', sans-serif; margin: 20px; }
             form { margin-bottom: 20px; }
             input[type="text"] { padding: 8px; width: 300px; }
             input[type="submit"] { padding: 8px 16px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
