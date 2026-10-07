@@ -15,13 +15,6 @@ function displayResult($url, $result)
         $output .= "</div>";
     } else {
         $redirects = $result['redirects'];
-        $has_301 = $result['has_301'];
-        $otherRedirects = $result['other'];
-        $finalUrl = $result['final_url'];
-        $finalCode = $result['final_code'];
-
-        $output .= "<div class='row'>";
-        $output .= "<div class='col-md-6'>";
         $output .= "<h6><i class='fas fa-route me-2'></i>Redirect Chain:</h6>";
         $output .= "<div class='redirect-chain'>";
         foreach ($redirects as $index => $redirect) {
@@ -38,46 +31,30 @@ function displayResult($url, $result)
             $output .= "</div>";
         }
         $output .= "</div>";
-        $output .= "</div>";
-        
-        $output .= "<div class='col-md-6'>";
-        $output .= "<h6><i class='fas fa-flag-checkered me-2'></i>Final Destination:</h6>";
-        $output .= "<div class='final-url'>";
-        $output .= "<code>" . htmlspecialchars($finalUrl) . "</code>";
-        $output .= "</div>";
-        
-        if ($has_301) {
-            $output .= "<div class='alert alert-success mt-3'>";
-            $output .= "<i class='fas fa-check-circle me-2'></i><strong>301 Permanent Redirect Detected!</strong>";
-            $output .= "<br><small>This is good for SEO - search engines will transfer ranking signals.</small>";
-            $output .= "</div>";
-        } else {
-            $output .= "<div class='alert alert-info mt-3'>";
-            $output .= "<i class='fas fa-info-circle me-2'></i>No 301 redirect in chain.";
-            $output .= "</div>";
-        }
-        
-        if ($otherRedirects) {
-            if ($otherRedirects['meta']['found']) {
-                $output .= "<div class='alert alert-warning mt-2'>";
-                $output .= "<i class='fas fa-code me-2'></i><strong>Meta Refresh Redirect:</strong> ";
-                $output .= "<code>" . htmlspecialchars($otherRedirects['meta']['url']) . "</code>";
-                $output .= "</div>";
-            }
-            if ($otherRedirects['js']['found']) {
-                $output .= "<div class='alert alert-warning mt-2'>";
-                $output .= "<i class='fab fa-js-square me-2'></i><strong>JavaScript Redirect:</strong> ";
-                $output .= "<code>" . htmlspecialchars($otherRedirects['js']['url']) . "</code>";
-                $output .= "</div>";
-            }
-        }
-        $output .= "</div>";
-        $output .= "</div>";
     }
     $output .= "</div>";
     $output .= "</div>";
     
     return $output;
+}
+
+function addHttpsIfMissing($url)
+{
+    $url = trim($url);
+    if ($url !== '' && !preg_match('/^[a-z][a-z0-9+.-]*:\/\//i', $url)) {
+        $url = 'https://' . $url;
+    }
+    return $url;
+}
+
+function isHttpUrl($url)
+{
+    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+        return false;
+    }
+
+    $scheme = parse_url($url, PHP_URL_SCHEME);
+    return in_array(strtolower($scheme ?? ''), ['http', 'https'], true);
 }
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -86,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     if (!empty($_POST['url'])) {
         // Process single URL
-        $url = $_POST['url'];
-        if (filter_var($url, FILTER_VALIDATE_URL)) {
+        $url = addHttpsIfMissing($_POST['url']);
+        if (isHttpUrl($url)) {
             $result = checkRedirects($url);
             $results[] = ['url' => $url, 'result' => $result];
         } else {
@@ -97,7 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Process multiple URLs
         $urls = array_filter(array_map('trim', explode("\n", $_POST['urls'])));
         foreach ($urls as $url) {
-            if (filter_var($url, FILTER_VALIDATE_URL)) {
+            $url = addHttpsIfMissing($url);
+            if (isHttpUrl($url)) {
                 $result = checkRedirects($url);
                 $results[] = ['url' => $url, 'result' => $result];
             } else {
@@ -344,7 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                        placeholder="https://example.com" required>
                                 <div class="form-text">
                                     <i class="fas fa-info-circle me-1"></i>
-                                    URL must start with http:// or https://
+                                    Enter a domain or URL; domains without a protocol use https:// automatically.
                                 </div>
                             </div>
                             <div class="col-md-2 d-flex align-items-end">
@@ -368,7 +346,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                           placeholder="https://example1.com&#10;https://example2.com&#10;https://example3.com" required></textarea>
                                 <div class="form-text">
                                     <i class="fas fa-info-circle me-1"></i>
-                                    Each URL must be on a separate line and start with http:// or https://
+                                    Enter one domain or URL per line; domains without a protocol use https:// automatically.
                                 </div>
                             </div>
                             <div class="col-md-3 d-flex align-items-end">
@@ -396,9 +374,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
           <div id="results"></div>
         
-        <!-- Quick Stats -->
-        <div id="quickStats" class="row" style="display: none;"></div>
-
         </div> <!-- end col-lg-9 -->
         </div> <!-- end row -->
         <!-- Results Section -->
@@ -422,18 +397,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Form handlers
         document.getElementById('singleUrlForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const url = document.getElementById('url').value.trim();
+            const input = document.getElementById('url');
+            const url = normalizeUrl(input.value);
             
-            if (!validateUrl(url)) {
+            if (!url) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Invalid URL',
-                    text: 'URL must start with http:// or https://',
+                    text: 'Enter a valid domain or an http:// or https:// URL.',
                     confirmButtonColor: '#6366f1'
                 });
                 return;
             }
             
+            input.value = url;
             checkSingleUrl(url);
         });
 
@@ -451,17 +428,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 return;
             }
 
-            const urls = urlsText.split('\n')
+            const inputUrls = urlsText.split('\n')
                 .map(url => url.trim())
                 .filter(url => url.length > 0);
+            const urls = inputUrls.map(normalizeUrl);
 
             // Validate all URLs
-            const invalidUrls = urls.filter(url => !validateUrl(url));
+            const invalidUrls = inputUrls.filter((url, index) => !urls[index]);
             if (invalidUrls.length > 0) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Invalid URLs found',
-                    html: `The following URLs are invalid:<br><code>${invalidUrls.join('<br>')}</code><br><br>All URLs must start with http:// or https://`,
+                    html: `The following URLs are invalid:<br><code>${invalidUrls.map(escapeHtml).join('<br>')}</code><br><br>Enter a valid domain or an http:// or https:// URL.`,
                     confirmButtonColor: '#6366f1'
                 });
                 return;
@@ -470,9 +448,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             checkMultipleUrls(urls);
         });
 
-        function validateUrl(url) {
-            const urlRegex = /^https?:\/\/.+/i;
-            return urlRegex.test(url);
+        function normalizeUrl(url) {
+            const trimmedUrl = url.trim();
+            if (!trimmedUrl) {
+                return null;
+            }
+
+            const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmedUrl)
+                ? trimmedUrl
+                : `https://${trimmedUrl}`;
+            try {
+                const parsedUrl = new URL(candidate);
+                return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') && parsedUrl.hostname
+                    ? candidate
+                    : null;
+            } catch {
+                return null;
+            }
         }
 
         function checkSingleUrl(url) {
@@ -493,7 +485,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             .then(data => {
                 hideProgress();
                 displayResults(data);
-                updateStats(data);
             })
             .catch(error => {
                 hideProgress();
@@ -542,7 +533,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if (currentChecking === totalToCheck) {
                     hideProgress();
                     displayResults(checkResults);
-                    updateStats(checkResults);
                 }
             })
             .catch(error => {
@@ -556,7 +546,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if (currentChecking === totalToCheck) {
                     hideProgress();
                     displayResults(checkResults);
-                    updateStats(checkResults);
                 }
             });
         }
@@ -583,7 +572,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         function clearResults() {
             document.getElementById('results').innerHTML = '';
-            document.getElementById('quickStats').style.display = 'none';
         }
 
         function displayResults(results) {
@@ -612,8 +600,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 card += `<i class="fas fa-exclamation-triangle me-2"></i>${escapeHtml(result.error)}`;
                 card += `</div>`;
             } else {
-                card += `<div class="row">`;
-                card += `<div class="col-md-6">`;
                 card += `<h6><i class="fas fa-route me-2"></i>Redirect Chain:</h6>`;
                 card += `<div class="redirect-chain">`;
                 
@@ -631,42 +617,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     card += `</div>`;
                 });
                 
-                card += `</div>`;
-                card += `</div>`;
-                
-                card += `<div class="col-md-6">`;
-                card += `<h6><i class="fas fa-flag-checkered me-2"></i>Final Destination:</h6>`;
-                card += `<div class="final-url">`;
-                card += `<code>${escapeHtml(result.final_url)}</code>`;
-                card += `</div>`;
-                
-                if (result.has_301) {
-                    card += `<div class="alert alert-success mt-3">`;
-                    card += `<i class="fas fa-check-circle me-2"></i><strong>301 Permanent Redirect Detected!</strong>`;
-                    card += `<br><small>This is good for SEO - search engines will transfer ranking signals.</small>`;
-                    card += `</div>`;
-                } else {
-                    card += `<div class="alert alert-info mt-3">`;
-                    card += `<i class="fas fa-info-circle me-2"></i>No 301 redirect in chain.`;
-                    card += `</div>`;
-                }
-                
-                if (result.other) {
-                    if (result.other.meta && result.other.meta.found) {
-                        card += `<div class="alert alert-warning mt-2">`;
-                        card += `<i class="fas fa-code me-2"></i><strong>Meta Refresh:</strong> `;
-                        card += `<code>${escapeHtml(result.other.meta.url)}</code>`;
-                        card += `</div>`;
-                    }
-                    if (result.other.js && result.other.js.found) {
-                        card += `<div class="alert alert-warning mt-2">`;
-                        card += `<i class="fab fa-js-square me-2"></i><strong>JavaScript Redirect:</strong> `;
-                        card += `<code>${escapeHtml(result.other.js.url)}</code>`;
-                        card += `</div>`;
-                    }
-                }
-                
-                card += `</div>`;
                 card += `</div>`;
             }
             
@@ -689,64 +639,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             card += `</div>`;
             
             return card;
-        }
-
-        function updateStats(results) {
-            const statsDiv = document.getElementById('quickStats');
-            
-            let total = results.length;
-            let has301 = 0;
-            let hasErrors = 0;
-            let hasOtherRedirects = 0;
-            
-            results.forEach(item => {
-                if (item.error) {
-                    hasErrors++;
-                } else if (item.result && !item.result.error) {
-                    if (item.result.has_301) has301++;
-                    if (item.result.other && (item.result.other.meta.found || item.result.other.js.found)) {
-                        hasOtherRedirects++;
-                    }
-                }
-            });
-            
-            let statsHtml = `
-                <div class="col-md-3 mb-3">
-                    <div class="card stats-card text-white">
-                        <div class="card-body text-center">
-                            <h3>${total}</h3>
-                            <small>Total Checked</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card text-white" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
-                        <div class="card-body text-center">
-                            <h3>${has301}</h3>
-                            <small>Has 301 Redirect</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card text-white" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
-                        <div class="card-body text-center">
-                            <h3>${hasOtherRedirects}</h3>
-                            <small>Meta/JS Redirects</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card text-white" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">
-                        <div class="card-body text-center">
-                            <h3>${hasErrors}</h3>
-                            <small>Errors</small>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            statsDiv.innerHTML = statsHtml;
-            statsDiv.style.display = 'flex';
         }
 
         function escapeHtml(text) {
@@ -796,4 +688,3 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </script>
 </body>
 </html>
-
